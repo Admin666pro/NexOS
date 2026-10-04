@@ -24,7 +24,7 @@ $(BUILD)/kernel.obj: kernel/kernel.asm | $(BUILD)
 	$(NASM) $(NASM_OBJ) -o $@ $<
 
 $(BUILD)/%.obj: c/%.c | $(BUILD)
-	$(WCC) $(WCCFLAGS) -fo=$@ $<
+	$(WCC) $(WCCFLAGS) -fo $@ $<
 
 $(BUILD)/kernel.bin: $(BUILD)/kernel.obj $(BUILD)/kmain.obj $(BUILD)/crt.obj
 	cd $(BUILD) && $(WLINK) system bin name kernel.bin &
