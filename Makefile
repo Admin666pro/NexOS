@@ -2,7 +2,10 @@ NASM      = nasm
 WCC       = wcc
 WLINK     = wlink
 
-NASM_OBJ  = -f obj -I kernel -I drivers -I gfx -I fs -I gui -I install -I apps -I c
+NASM_OBJ  = -f obj \
+    -I kernel -I drivers -I gfx -I fs -I gui \
+    -I install -I apps -I c -I data -I build
+
 WCCFLAGS  = -ms -0 -bt=none -zq -zcm -w4
 BUILD     = build
 

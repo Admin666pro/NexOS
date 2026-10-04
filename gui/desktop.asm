@@ -274,4 +274,3 @@ g_start    db '开始',0
 g_ver      db 'NexOS 1.0',0
 g_power    db '关机',0
 g_shutdown db '系统已关机, 可以安全关闭电源',13,10,0
-fn_wall    db 'WALL    BIN'

@@ -346,4 +346,3 @@ g_btn_next   db '下一页',0
 g_bmode      db 0
 g_bpage      db 0
 page_buf     times 400 db 0
-fn_taohua    db 'TAOHUA  TXT'
