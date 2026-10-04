@@ -1,38 +1,38 @@
-NASM      = nasm
-WCC       = owcc
-WLINK     = wlink
+CC      = gcc
+CFLAGS  = -m32 -std=gnu99 -ffreestanding -O2 -Wall -Wextra -fno-pie
+LDFLAGS = -m32 -T linker.ld -ffreestanding -O2 -nostdlib -no-pie
 
-NASM_OBJ  = -f obj \
-    -I kernel -I drivers -I gfx -I fs -I gui \
-    -I install -I apps -I c -I data -I build
+OBJS = build/boot.o build/kmain.o build/gdt.o build/gdt_flush.o \
+       build/idt.o build/idt_flush.o build/isr.o build/isr_stub.o
 
-# owcc 的 16 位选项
-WCCFLAGS = -b dos -mcmodel=l -mtune=i086 -fno-stack-check -Wall -Wc,-zt164 -c
-BUILD     = build
+all: build/NexOS.iso
 
-all: $(BUILD)/mbr.bin $(BUILD)/hdboot.bin $(BUILD)/kernel.bin
+build:
+	mkdir -p build
 
-$(BUILD):
-	mkdir -p $(BUILD)
+build/%.o: boot/%.S | build
+	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD)/mbr.bin: boot/mbr.asm | $(BUILD)
-	$(NASM) -f bin -o $@ $<
+build/%.o: kernel/%.c | build
+	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD)/hdboot.bin: boot/hdboot.asm | $(BUILD)
-	$(NASM) -f bin -o $@ $<
+build/%.o: kernel/%.S | build
+	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD)/kernel.obj: kernel/kernel.asm | $(BUILD)
-	$(NASM) $(NASM_OBJ) -o $@ $<
+build/NexOS.elf: $(OBJS) linker.ld
+	$(CC) $(LDFLAGS) -o $@ $(OBJS) -lgcc
 
-$(BUILD)/%.obj: c/%.c | $(BUILD)
-	$(WCC) $(WCCFLAGS) -o $@ $<
+build/NexOS.iso: build/NexOS.elf grub.cfg
+	mkdir -p build/iso/boot/grub
+	cp build/NexOS.elf build/iso/boot/
+	cp grub.cfg build/iso/boot/grub/
+	grub-mkrescue -o $@ build/iso
 
-$(BUILD)/kernel.bin: $(BUILD)/kernel.obj $(BUILD)/kmain.obj $(BUILD)/crt.obj
-	cd $(BUILD) && $(WLINK) system dos name kernel.bin \
-	    option stack=4k \
-	    option start=main_ \
-	    file kernel.obj,kmain.obj,crt.obj \
-	    library clibl.lib
+run: build/NexOS.iso
+	qemu-system-i386 -cdrom build/NexOS.iso -boot d
+
+debug: build/NexOS.iso
+	qemu-system-i386 -cdrom build/NexOS.iso -boot d -d int,cpu_reset -D qemu.log
 
 clean:
-	rm -rf $(BUILD)
+	rm -rf build
