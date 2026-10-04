@@ -1,6 +1,7 @@
 // isr.c
 #include "isr.h"
 #include "io.h"
+#include "timer.h"
 
 static const char *exception_names[] = {
     "Divide by zero", "Debug", "NMI", "Breakpoint",
@@ -48,14 +49,12 @@ void isr_handler(struct regs *r) {
 }
 
 void irq_handler(struct regs *r) {
-    /* 先发 EOI，避免后续 IRQ 被阻塞 */
-    if (r->int_no >= 40) outb(0xA0, 0x20);  /* 从 PIC */
-    outb(0x20, 0x20);                        /* 主 PIC */
+    if (r->int_no >= 40) outb(0xA0, 0x20);
+    outb(0x20, 0x20);
 
     if (r->int_no == 32) {
-        /* 定时器 IRQ0 */
+        timer_tick();
     } else if (r->int_no == 33) {
-        /* 键盘 IRQ1，可以在这里读 0x60 */
         (void)inb(0x60);
     }
 }
