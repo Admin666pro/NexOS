@@ -4,7 +4,8 @@ LDFLAGS = -m32 -T linker.ld -ffreestanding -O2 -nostdlib -no-pie
 
 OBJS = build/boot.o build/kmain.o build/gdt.o build/gdt_flush.o \
        build/idt.o build/idt_flush.o build/isr.o build/isr_stub.o \
-       build/pmm.o build/paging.o build/paging_flush.o
+       build/pmm.o build/paging.o build/paging_flush.o \
+       build/heap.o
 
 all: build/NexOS-NEXT.iso
 

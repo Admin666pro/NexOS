@@ -2,6 +2,7 @@
 #include "gdt.h"
 #include "idt.h"
 #include "pmm.h"
+#include "heap.h"
 #include "paging.h"
 
 #define VGA_MEMORY ((volatile uint16_t *)0xB8000)
@@ -56,9 +57,39 @@ void kmain(uint32_t magic, uint32_t mbi) {
     uint32_t used  = pmm_used_pages();
     vga_puts("     Total: "); vga_dec(total); vga_puts(" pages (");
     vga_dec(total * 4 / 1024); vga_puts(" MB)\n");
+    vga_puts("     Used : "); vga_dec(used);  vga_puts(" pages\n");
 
     paging_init();
     vga_puts("[OK] Paging enabled\n");
+
+        paging_init();
+    vga_puts("[OK] Paging enabled\n");
+
+    heap_init();
+    vga_puts("[OK] Heap initialized\n\n");
+
+    vga_puts("kmalloc test:\n");
+    char *a = kmalloc(32);
+    char *b = kmalloc(64);
+    char *c = kmalloc(128);
+
+    vga_puts("  kmalloc(32)  = "); vga_hex((uint32_t)a); vga_putc('\n');
+    vga_puts("  kmalloc(64)  = "); vga_hex((uint32_t)b); vga_putc('\n');
+    vga_puts("  kmalloc(128) = "); vga_hex((uint32_t)c); vga_putc('\n');
+
+    for (int i = 0; i < 31; i++) a[i] = 'A' + (i % 26);
+    a[31] = 0;
+    vga_puts("  write/read a: "); vga_puts(a); vga_putc('\n');
+
+    kfree(b);
+    vga_puts("\n  freed middle block\n");
+
+    char *d = kmalloc(32);
+    vga_puts("  kmalloc(32)  = "); vga_hex((uint32_t)d);
+    vga_puts("  (should equal b)\n");
+
+    vga_puts("\nSystem halted.\n");
+    for (;;) __asm__ volatile("hlt");
 
     /* 验证分页真的生效了：写一个地址，读回同一个值 */
     volatile uint32_t *probe = (uint32_t *)0x00100000;  /* 1MB 处，恒等映射内 */
