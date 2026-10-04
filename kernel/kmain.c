@@ -7,8 +7,9 @@
 #include "thread.h"
 #include "timer.h"
 #include "sched.h"
-#include "ipc.h"
 #include "syscall.h"
+#include "elf_loader.h"
+#include "elf.h"
 #include "io.h"
 
 #define VGA_MEMORY ((volatile uint16_t *)0xB8000)
@@ -28,11 +29,9 @@ static void vga_move_cursor(void) {
 static void vga_scroll(void) {
     for (int i = 0; i < (VGA_HEIGHT - 1) * VGA_WIDTH; i++)
         VGA_MEMORY[i] = VGA_MEMORY[i + VGA_WIDTH];
-
     for (int i = (VGA_HEIGHT - 1) * VGA_WIDTH;
          i < VGA_HEIGHT * VGA_WIDTH; i++)
         VGA_MEMORY[i] = (uint16_t)((0x07 << 8) | ' ');
-
     cursor = (VGA_HEIGHT - 1) * VGA_WIDTH;
 }
 
@@ -66,16 +65,8 @@ void vga_hex(uint32_t v) {
     for (int i = 28; i >= 0; i -= 4) vga_putc(h[(v >> i) & 0xF]);
 }
 
-void vga_dec(uint32_t v) {
-    char buf[16]; int i = 0;
-    if (v == 0) { vga_putc('0'); return; }
-    while (v > 0) { buf[i++] = '0' + (v % 10); v /= 10; }
-    while (i--) vga_putc(buf[i]);
-}
-
-extern int  g_receiver_tid;
-extern void user_receiver(void);
-extern void user_sender(void);
+extern const uint8_t init_elf_start[];
+extern const uint8_t init_elf_end[];
 
 void kmain(uint32_t magic, uint32_t mbi) {
     vga_clear();
@@ -85,7 +76,7 @@ void kmain(uint32_t magic, uint32_t mbi) {
     syscall_init();
 
     vga_puts("NexOS-NEXT 32-bit microkernel\n");
-    vga_puts("\n");
+    vga_puts("=============================\n");
 
     if (magic != 0x2BADB002) {
         vga_puts("[FAIL] bad multiboot magic\n");
@@ -101,14 +92,27 @@ void kmain(uint32_t magic, uint32_t mbi) {
     vga_puts("[OK] User mode (ring 3)\n");
     vga_puts("[OK] IPC\n\n");
 
-    vga_puts("Booting user threads...\n\n");
+    uint32_t elf_size = (uint32_t)(init_elf_end - init_elf_start);
+    vga_puts("Loading init ELF (size=");
+    vga_hex(elf_size);
+    vga_puts(")...\n");
 
-    thread_t *r = thread_create_user(user_receiver);
-    if (!r) { vga_puts("[FAIL] receiver create\n"); for (;;) __asm__ volatile("hlt"); }
-    g_receiver_tid = r->id;
+    elf_load_result_t elf;
+    int r = elf_load(init_elf_start, elf_size, &elf);
+    if (r) {
+        vga_puts("[FAIL] elf_load = ");
+        vga_hex((uint32_t)r);
+        vga_puts("\n");
+        for (;;) __asm__ volatile("hlt");
+    }
 
-    thread_t *s = thread_create_user(user_sender);
-    if (!s) { vga_puts("[FAIL] sender create\n"); for (;;) __asm__ volatile("hlt"); }
+    vga_puts("[OK] ELF loaded, entry=");
+    vga_hex(elf.entry);
+    vga_puts(" stack=");
+    vga_hex(elf.stack_top);
+    vga_puts("\n\n");
+
+    thread_create_elf(elf.entry, elf.stack_top);
 
     for (volatile int i = 0; i < 30000000; i++);
     sched_start();

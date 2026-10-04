@@ -23,17 +23,12 @@ static void heap_grow(void) {
 
     uint32_t virt = HEAP_START + heap_mapped;
 
-    /* 逐页分配物理页，映射到连续的虚拟地址上 */
     for (int i = 0; i < HEAP_GROW_PAGES; i++) {
         void *phys = pmm_alloc_page();
-        if (!phys) {
-            /* 失败：回滚已映射的页 */
-            for (int j = 0; j < i; j++) {
-                /* 这里简化处理：不精确回滚，只标记 heap_mapped 不变 */
-            }
-            return;
-        }
-        paging_map(virt + i * PAGE_SIZE, (uint32_t)phys, PAGE_RW | PAGE_USER);
+        if (!phys) return;
+
+        /* 内核堆：只允许 ring 0 访问，不加 PAGE_USER */
+        paging_map(virt + i * PAGE_SIZE, (uint32_t)phys, PAGE_RW);
     }
 
     block_t *nb = (block_t *)virt;
@@ -85,7 +80,6 @@ void kfree(void *ptr) {
     if (b->magic != BLOCK_MAGIC) return;
     b->free = 1;
 
-    /* 合并相邻空闲块 */
     b = head;
     while (b) {
         if (b->free && b->next && b->next->free) {

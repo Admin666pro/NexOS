@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#define STACK_SIZE 8192
+#define STACK_SIZE 2048
 
 typedef enum { THREAD_READY, THREAD_BLOCKED, THREAD_DEAD } thread_state_t;
 
@@ -14,7 +14,7 @@ typedef struct message {
     struct message *next;
 } message_t;
 
-/* ★ 加这个：用户态可见的消息结构 */
+/* 用户态可见的消息结构（不含内核用的 next） */
 typedef struct {
     int      sender;
     int      type;
@@ -37,6 +37,7 @@ typedef struct thread {
 
 thread_t *thread_create(void (*entry)(void));
 thread_t *thread_create_user(void (*entry)(void));
+thread_t *thread_create_elf(uint32_t entry, uint32_t stack_top);
 void      thread_init(void);
 
 extern thread_t *current_thread;
