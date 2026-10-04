@@ -126,6 +126,12 @@ irq_common:
 
 .section .rodata
 .global isr_stub_table
+.global isr128
+isr128:
+    cli
+    push $0
+    push $128
+    jmp isr_common
 isr_stub_table:
     .long isr0,  isr1,  isr2,  isr3,  isr4,  isr5,  isr6,  isr7
     .long isr8,  isr9,  isr10, isr11, isr12, isr13, isr14, isr15

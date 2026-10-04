@@ -5,7 +5,7 @@
 
 #define STACK_SIZE 2048
 
-typedef enum { THREAD_READY, THREAD_BLOCKED } thread_state_t;
+typedef enum { THREAD_READY, THREAD_BLOCKED, THREAD_DEAD } thread_state_t;
 
 typedef struct message {
     int       sender;
@@ -14,18 +14,29 @@ typedef struct message {
     struct message *next;
 } message_t;
 
+/* ★ 加这个：用户态可见的消息结构 */
+typedef struct {
+    int      sender;
+    int      type;
+    uint32_t data[8];
+} user_msg_t;
+
 typedef struct thread {
     uint32_t       esp;
     uint32_t      *stack_base;
+    uint32_t      *kernel_stack;
+    uint32_t      *user_stack;
     void         (*entry)(void);
     int            id;
     int            state;
+    int            is_user;
     message_t     *msg_head;
     message_t     *msg_tail;
     struct thread *next;
 } thread_t;
 
 thread_t *thread_create(void (*entry)(void));
+thread_t *thread_create_user(void (*entry)(void));
 void      thread_init(void);
 
 extern thread_t *current_thread;

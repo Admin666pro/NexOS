@@ -2,15 +2,13 @@
 #include "gdt.h"
 #include "idt.h"
 #include "pmm.h"
-#include "heap.h"
 #include "paging.h"
-#include "thread.h"
-#include "timer.h"
-#include "sched.h"
+#include "heap.h"
 #include "thread.h"
 #include "timer.h"
 #include "sched.h"
 #include "ipc.h"
+#include "syscall.h"
 
 #define VGA_MEMORY ((volatile uint16_t *)0xB8000)
 #define VGA_WIDTH  80
@@ -42,91 +40,89 @@ void vga_dec(uint32_t v) {
     while (i--) vga_putc(buf[i]);
 }
 
-static int receiver_id = -1;
+int g_receiver_tid = -1;
 
-static void thread_receiver(void) {
-    vga_puts("[R] receiver started\n");
+static void user_receiver(void) {
+    __asm__ volatile("int $0x80" :: "a"(1), "b"("[R] user receiver started\n") : "memory");
+
     for (int i = 0; i < 5; i++) {
-        message_t m;
-        ipc_recv(&m);
-        vga_puts("[R] got: ");
-        vga_puts((const char *)m.data);
-        vga_puts("  from thread ");
-        vga_dec(m.sender);
-        vga_putc('\n');
+        user_msg_t m = {0};
+
+        /* SYS_RECV(&m) —— 没消息时阻塞 */
+        __asm__ volatile("int $0x80" :: "a"(4), "b"(&m) : "memory");
+
+        __asm__ volatile("int $0x80" :: "a"(1), "b"("[R] got: ") : "memory");
+        __asm__ volatile("int $0x80" :: "a"(1), "b"((const char *)m.data) : "memory");
+        __asm__ volatile("int $0x80" :: "a"(1), "b"("  from ") : "memory");
+
+        char tmp[4] = {0};
+        tmp[0] = '0' + (m.sender % 10);
+        tmp[1] = '\n';
+        __asm__ volatile("int $0x80" :: "a"(1), "b"(tmp) : "memory");
     }
-    vga_puts("[R] done, exiting loop\n");
-    for (;;) __asm__ volatile("hlt");
+
+    __asm__ volatile("int $0x80" :: "a"(2) : "memory");
+    for (;;) __asm__ volatile("pause");
 }
 
-static void thread_sender(void) {
-    for (volatile int i = 0; i < 5000000; i++);
+static void user_sender(void) {
+    /* 等 receiver 就绪 */
+    for (volatile int i = 0; i < 20000000; i++);
 
     for (int i = 0; i < 5; i++) {
-        message_t m = {0};
-        m.sender = current_thread->id;
-        m.type   = 1;
-
+        user_msg_t m = {0};
+        m.type = 1;
         char *p = (char *)m.data;
         p[0]='m'; p[1]='s'; p[2]='g'; p[3]='-';
         p[4]='0'+i; p[5]=0;
 
-        vga_puts("[S] sending msg-");
-        vga_putc('0'+i);
-        vga_putc('\n');
+        __asm__ volatile("int $0x80" :: "a"(1), "b"("[S] sending msg\n") : "memory");
 
-        ipc_send(receiver_id, &m);
+        int tid = g_receiver_tid;
+        __asm__ volatile("int $0x80" :: "a"(3), "b"(tid), "c"(&m) : "memory");
 
-        for (volatile int j = 0; j < 10000000; j++);
+        for (volatile int j = 0; j < 5000000; j++);
     }
-    vga_puts("[S] done\n");
-    for (;;) __asm__ volatile("hlt");
-}
 
-static void thread_A(void) {
-    for (;;) {
-        vga_puts("A");
-        for (volatile int i = 0; i < 500000; i++);
-    }
-}
-
-static void thread_B(void) {
-    for (;;) {
-        vga_puts("B");
-        for (volatile int i = 0; i < 500000; i++);
-    }
+    __asm__ volatile("int $0x80" :: "a"(2) : "memory");
+    for (;;) __asm__ volatile("pause");
 }
 
 void kmain(uint32_t magic, uint32_t mbi) {
     vga_clear();
+
     gdt_init();
     idt_init();
+    syscall_init();
 
     vga_puts("NexOS-NEXT 32-bit kernel booted!\n");
+
     if (magic != 0x2BADB002) {
         vga_puts("[FAIL] bad multiboot magic\n");
         for (;;) __asm__ volatile("hlt");
     }
 
-    pmm_init(mbi);
-    vga_puts("[OK] PMM\n");
-    paging_init();
-    vga_puts("[OK] Paging\n");
-    heap_init();
-    vga_puts("[OK] Heap\n");
-
+    pmm_init(mbi);      vga_puts("[OK] PMM\n");
+    paging_init();      vga_puts("[OK] Paging\n");
+    heap_init();        vga_puts("[OK] Heap\n");
     thread_init();
-    timer_init();
-    vga_puts("[OK] Timer @100Hz, scheduler ready\n\n");
+    timer_init();       vga_puts("[OK] Timer @100Hz\n\n");
 
-    vga_puts("IPC test: receiver + sender\n\n");
+    vga_puts("Creating user threads (IPC test)...\n");
 
-    thread_t *r = thread_create(thread_receiver);
-    receiver_id = r->id;
+    thread_t *r = thread_create_user(user_receiver);
+    if (!r) {
+        vga_puts("[FAIL] receiver create\n");
+        for (;;) __asm__ volatile("hlt");
+    }
+    g_receiver_tid = r->id;
 
-    thread_create(thread_sender);
+    thread_t *s = thread_create_user(user_sender);
+    if (!s) {
+        vga_puts("[FAIL] sender create\n");
+        for (;;) __asm__ volatile("hlt");
+    }
 
     for (volatile int i = 0; i < 30000000; i++);
-
     sched_start();
 }

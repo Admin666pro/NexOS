@@ -3,4 +3,5 @@
 #define IDT_H
 #include <stdint.h>
 void idt_init(void);
+void idt_set(int n, uint32_t base, uint16_t sel, uint8_t flags);
 #endif

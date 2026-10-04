@@ -2,6 +2,7 @@
 #include "isr.h"
 #include "io.h"
 #include "timer.h"
+#include "syscall.h"
 
 static const char *exception_names[] = {
     "Divide by zero", "Debug", "NMI", "Breakpoint",
@@ -13,6 +14,8 @@ static const char *exception_names[] = {
     "Reserved", "Reserved", "Reserved", "Reserved",
     "Reserved", "Reserved", "Reserved", "Reserved"
 };
+extern int syscall_handler(uint32_t, uint32_t, uint32_t,
+                           uint32_t, uint32_t, uint32_t);
 
 extern void vga_puts(const char *s);
 extern void vga_hex(uint32_t v);
@@ -36,6 +39,11 @@ static void dump_regs(struct regs *r) {
 }
 
 void isr_handler(struct regs *r) {
+    if (r->int_no == 128) {
+        r->eax = syscall_handler(r->eax, r->ebx, r->ecx,
+                                 r->edx, r->esi, r->edi);
+        return;
+    }
     if (r->int_no < 32) {
         vga_puts("\n[EXCEPTION] ");
         vga_puts(exception_names[r->int_no]);

@@ -21,7 +21,7 @@ static struct idt_ptr   ip;
 extern void idt_flush(uint32_t);
 extern uint32_t isr_stub_table[];
 
-static void idt_set(int n, uint32_t base, uint16_t sel, uint8_t flags) {
+void idt_set(int n, uint32_t base, uint16_t sel, uint8_t flags) {
     idt[n].base_low  = base & 0xFFFF;
     idt[n].base_high = (base >> 16) & 0xFFFF;
     idt[n].sel       = sel;
