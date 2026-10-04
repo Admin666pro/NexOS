@@ -1,8 +1,7 @@
-// isr.c
 #include "isr.h"
 #include "io.h"
 #include "timer.h"
-#include "syscall.h"
+#include "kbd.h"
 
 static const char *exception_names[] = {
     "Divide by zero", "Debug", "NMI", "Breakpoint",
@@ -14,8 +13,6 @@ static const char *exception_names[] = {
     "Reserved", "Reserved", "Reserved", "Reserved",
     "Reserved", "Reserved", "Reserved", "Reserved"
 };
-extern int syscall_handler(uint32_t, uint32_t, uint32_t,
-                           uint32_t, uint32_t, uint32_t);
 
 extern void vga_puts(const char *s);
 extern void vga_hex(uint32_t v);
@@ -40,6 +37,8 @@ static void dump_regs(struct regs *r) {
 
 void isr_handler(struct regs *r) {
     if (r->int_no == 128) {
+        extern int syscall_handler(uint32_t, uint32_t, uint32_t,
+                                   uint32_t, uint32_t, uint32_t);
         r->eax = syscall_handler(r->eax, r->ebx, r->ecx,
                                  r->edx, r->esi, r->edi);
         return;
@@ -48,8 +47,9 @@ void isr_handler(struct regs *r) {
         vga_puts("\n[EXCEPTION] ");
         vga_puts(exception_names[r->int_no]);
         vga_puts("\n");
-        if (r->err_code)
-            { vga_puts("  err_code="); vga_hex(r->err_code); vga_putc('\n'); }
+        if (r->err_code) {
+            vga_puts("  err_code="); vga_hex(r->err_code); vga_putc('\n');
+        }
         dump_regs(r);
         vga_puts("\nSystem halted.\n");
         for (;;) __asm__ volatile("cli; hlt");
@@ -63,6 +63,6 @@ void irq_handler(struct regs *r) {
     if (r->int_no == 32) {
         timer_tick();
     } else if (r->int_no == 33) {
-        (void)inb(0x60);
+        kbd_irq();
     }
 }

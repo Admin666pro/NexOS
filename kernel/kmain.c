@@ -10,6 +10,7 @@
 #include "syscall.h"
 #include "elf_loader.h"
 #include "elf.h"
+#include "kbd.h"
 #include "io.h"
 
 #define VGA_MEMORY ((volatile uint16_t *)0xB8000)
@@ -39,6 +40,12 @@ void vga_clear(void) {
     for (int i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++)
         VGA_MEMORY[i] = (uint16_t)((0x07 << 8) | ' ');
     cursor = 0;
+
+    /* 设置光标形状 */
+    outb(0x3D4, 0x0A);
+    outb(0x3D5, 0x0E); 
+    outb(0x3D4, 0x0B);
+    outb(0x3D5, 0x0F);
     vga_move_cursor();
 }
 
@@ -50,6 +57,13 @@ void vga_putc(char c) {
     }
     if (c == '\n') {
         cursor = (cursor / VGA_WIDTH + 1) * VGA_WIDTH;
+    } else if (c == '\b') {
+        if (cursor > 0) {
+            cursor--;
+            VGA_MEMORY[cursor] = (uint16_t)((0x07 << 8) | ' ');
+        }
+        vga_move_cursor();
+        return;
     } else {
         VGA_MEMORY[cursor++] = (uint16_t)((0x07 << 8) | (uint8_t)c);
     }
@@ -88,6 +102,7 @@ void kmain(uint32_t magic, uint32_t mbi) {
     heap_init();        vga_puts("[OK] Heap\n");
     thread_init();
     timer_init();       vga_puts("[OK] Timer @100Hz\n");
+    kbd_init();         vga_puts("[OK] Keyboard\n");
     vga_puts("[OK] Syscalls (int 0x80)\n");
     vga_puts("[OK] User mode (ring 3)\n");
     vga_puts("[OK] IPC\n\n");
@@ -113,6 +128,8 @@ void kmain(uint32_t magic, uint32_t mbi) {
     vga_puts("\n\n");
 
     thread_create_elf(elf.entry, elf.stack_top);
+
+    __asm__ volatile("sti");
 
     for (volatile int i = 0; i < 30000000; i++);
     sched_start();

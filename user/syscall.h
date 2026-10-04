@@ -18,4 +18,14 @@ static inline int sys_getid(void) {
     return r;
 }
 
+static inline int sys_getchar(void) {
+    int r;
+    __asm__ volatile("int $0x80" : "=a"(r) : "a"(6) : "memory");
+    return r;
+}
+
+static inline void sys_putchar(char c) {
+    __asm__ volatile("int $0x80" :: "a"(7), "b"((int)c) : "memory");
+}
+
 #endif
