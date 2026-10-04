@@ -16,4 +16,6 @@ dist/
 *.tmp
 *.log
 
+start_venv.sh
+
 decompiled/
