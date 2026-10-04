@@ -10,7 +10,8 @@ OBJS = build/boot.o build/kmain.o \
        build/heap.o \
        build/thread.o build/sched.o build/switch.o \
        build/timer.o build/ipc.o \
-       build/syscall.o build/usermode.o
+       build/syscall.o build/usermode.o \
+	   build/userland.o
 
 all: build/NexOS-NEXT.iso
 

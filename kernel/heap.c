@@ -33,7 +33,7 @@ static void heap_grow(void) {
             }
             return;
         }
-        paging_map(virt + i * PAGE_SIZE, (uint32_t)phys, PAGE_RW | PAGE_USER);  // ← 加 PAGE_USER
+        paging_map(virt + i * PAGE_SIZE, (uint32_t)phys, PAGE_RW | PAGE_USER);
     }
 
     block_t *nb = (block_t *)virt;

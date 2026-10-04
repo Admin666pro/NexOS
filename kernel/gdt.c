@@ -71,16 +71,6 @@ void gdt_init(void) {
     tss_flush();
 }
 
-void gdt_debug_dump(void) {
-    extern void vga_hex(uint32_t);
-    extern void vga_puts(const char *);
-    extern void vga_putc(char);
-    vga_hex(tss.esp0);
-    vga_puts("  ss0=");
-    vga_hex(tss.ss0);
-    vga_putc('\n');
-}
-
 void gdt_set_kernel_stack(uint32_t esp0) {
     tss.esp0 = esp0;
 }

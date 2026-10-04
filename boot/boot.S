@@ -17,12 +17,24 @@ stack_top:
 .section .text
 .global _start
 .type _start, @function
+
 _start:
     mov $stack_top, %esp
 
-   
-    push %ebx
-    push %eax
+    /* ★ 用寄存器保存参数（rep stosb 不影响 ESI/EBP） */
+    mov %eax, %esi        /* ESI = magic */
+    mov %ebx, %ebp        /* EBP = mbi   */
+
+    /* ★ 清零 BSS */
+    mov $_bss_start, %edi
+    mov $_bss_end, %ecx
+    sub %edi, %ecx
+    xor %eax, %eax
+    rep stosb
+
+    /* ★ 按 C 调用约定压栈（最后一个参数先压） */
+    push %ebp             /* mbi   */
+    push %esi             /* magic */
     call kmain
 
 1:  cli

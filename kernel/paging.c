@@ -18,8 +18,8 @@ void paging_init(void) {
     for (uint32_t addr = 0; addr < IDENTITY_SIZE; addr += 0x400000) {
         uint32_t *pt = (uint32_t *)pmm_alloc_page();
         for (int i = 0; i < 1024; i++)
-            pt[i] = (addr + i * 0x1000) | PAGE_PRESENT | PAGE_RW | PAGE_USER;  // ← 加 PAGE_USER
-        page_dir[PD_INDEX(addr)] = ((uint32_t)pt) | PAGE_PRESENT | PAGE_RW | PAGE_USER;  // ← 也加
+            pt[i] = (addr + i * 0x1000) | PAGE_PRESENT | PAGE_RW | PAGE_USER;   // ← 加
+        page_dir[PD_INDEX(addr)] = ((uint32_t)pt) | PAGE_PRESENT | PAGE_RW | PAGE_USER;  // ← 加
     }
 
     paging_load_dir((uint32_t)page_dir);
@@ -32,7 +32,7 @@ void paging_map(uint32_t virt, uint32_t phys, uint32_t flags) {
     if (!(page_dir[pd] & PAGE_PRESENT)) {
         uint32_t *new_pt = (uint32_t *)pmm_alloc_page();
         for (int i = 0; i < 1024; i++) new_pt[i] = 0;
-        page_dir[pd] = ((uint32_t)new_pt) | PAGE_PRESENT | PAGE_RW | PAGE_USER;
+        page_dir[pd] = ((uint32_t)new_pt) | PAGE_PRESENT | PAGE_RW | PAGE_USER;  // ← 加
     }
 
     uint32_t *table = (uint32_t *)(page_dir[pd] & ~0xFFF);
