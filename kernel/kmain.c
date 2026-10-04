@@ -12,6 +12,7 @@
 #include "elf.h"
 #include "kbd.h"
 #include "io.h"
+#include "vfs.h"
 
 #define VGA_MEMORY ((volatile uint16_t *)0xB8000)
 #define VGA_WIDTH  80
@@ -100,6 +101,7 @@ void kmain(uint32_t magic, uint32_t mbi) {
     pmm_init(mbi);      vga_puts("[OK] PMM\n");
     paging_init();      vga_puts("[OK] Paging\n");
     heap_init();        vga_puts("[OK] Heap\n");
+    vfs_init();         vga_puts("[OK] VFS (ramfs)\n");
     thread_init();
     timer_init();       vga_puts("[OK] Timer @100Hz\n");
     kbd_init();         vga_puts("[OK] Keyboard\n");

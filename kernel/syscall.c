@@ -5,6 +5,7 @@
 #include "ipc.h"
 #include "kbd.h"
 #include "elf.h"
+#include "vfs.h"
 #include <stdint.h>
 
 #define SYS_PRINT    1
@@ -14,6 +15,13 @@
 #define SYS_GETID    5
 #define SYS_GETCHAR  6
 #define SYS_PUTCHAR  7
+#define SYS_OPEN    8
+#define SYS_CLOSE   9
+#define SYS_READ    10
+#define SYS_WRITE   11
+#define SYS_READDIR 12
+#define SYS_MKDIR   13
+#define SYS_UNLINK  14
 
 extern void isr128(void);
 extern void vga_putc(char c);
@@ -53,6 +61,41 @@ int syscall_handler(uint32_t num, uint32_t a, uint32_t b,
             if (!user_str_ok((const char *)a, 4096)) return -1;
             vga_puts((const char *)a);
             return 0;
+        }
+                case SYS_OPEN: {
+            if (!user_str_ok((const char *)a, MAX_PATH)) return -1;
+            return vfs_open((const char *)a, (int)b);
+        }
+
+        case SYS_CLOSE:
+            return vfs_close((int)a);
+
+        case SYS_READ: {
+            if (!user_range_ok(b, c)) return -1;
+            return vfs_fd_read((int)a, (uint8_t *)b, c);
+        }
+
+        case SYS_WRITE: {
+            if (!user_range_ok(b, c)) return -1;
+            return vfs_fd_write((int)a, (const uint8_t *)b, c);
+        }
+
+        case SYS_READDIR: {
+            int fd  = (int)a;
+            int idx = (int)b;
+            if (!user_range_ok(c, MAX_NAME)) return -1;
+            if (!user_range_ok(d, 4)) return -1;
+            return vfs_fd_readdir(fd, idx, (char *)c, (int *)d);
+        }
+
+        case SYS_MKDIR: {
+            if (!user_str_ok((const char *)a, MAX_PATH)) return -1;
+            return vfs_create((const char *)a, VFS_DIR) ? 0 : -1;
+        }
+
+        case SYS_UNLINK: {
+            if (!user_str_ok((const char *)a, MAX_PATH)) return -1;
+            return vfs_unlink((const char *)a);
         }
 
         case SYS_EXIT:

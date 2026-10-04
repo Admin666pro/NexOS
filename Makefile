@@ -11,7 +11,7 @@ OBJS = build/boot.o build/kmain.o \
        build/idt.o build/idt_flush.o \
        build/isr.o build/isr_stub.o \
        build/pmm.o build/paging.o build/paging_flush.o \
-       build/heap.o \
+       build/heap.o build/vfs.o build/ramfs.o \
        build/thread.o build/sched.o build/switch.o \
        build/timer.o build/ipc.o build/kbd.o \
        build/syscall.o build/usermode.o \
