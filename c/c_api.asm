@@ -7,9 +7,6 @@ global c_putc
 global c_newline
 global c_cls
 
-extern print
-extern newline
-
 ; void c_puts(const char *s)
 c_puts:
     mov si,ax
