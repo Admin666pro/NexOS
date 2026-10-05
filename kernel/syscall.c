@@ -6,6 +6,7 @@
 #include "kbd.h"
 #include "elf.h"
 #include "vfs.h"
+#include "part.h"
 #include <stdint.h>
 
 #define SYS_PRINT    1
@@ -22,6 +23,8 @@
 #define SYS_READDIR 12
 #define SYS_MKDIR   13
 #define SYS_UNLINK  14
+#define SYS_PART_LIST  15
+#define SYS_PART_MKP   16
 
 extern void isr128(void);
 extern void vga_putc(char c);
@@ -138,6 +141,45 @@ int syscall_handler(uint32_t num, uint32_t a, uint32_t b,
             um->type   = m.type;
             for (int i = 0; i < 8; i++) um->data[i] = m.data[i];
             return 0;
+        }
+        case SYS_PART_LIST: {
+            /* a = drive, b = 用户缓冲区（4 * 16 字节） */
+            if (!user_range_ok(b, 4 * 16)) return -1;
+            partition_t table[4];
+            if (part_read_table((int)a, table) < 0) return -1;
+
+            /* 打包成 4*16 字节发给用户 */
+            uint8_t *out = (uint8_t *)b;
+            for (int i = 0; i < 4; i++) {
+                uint8_t *p = out + i * 16;
+                p[0] = table[i].bootable ? 1 : 0;
+                p[1] = (uint8_t)table[i].type;
+                p[2] = 0; p[3] = 0;
+                p[4]  = table[i].start_lba & 0xFF;
+                p[5]  = (table[i].start_lba >> 8) & 0xFF;
+                p[6]  = (table[i].start_lba >> 16) & 0xFF;
+                p[7]  = (table[i].start_lba >> 24) & 0xFF;
+                p[8]  = table[i].sectors & 0xFF;
+                p[9]  = (table[i].sectors >> 8) & 0xFF;
+                p[10] = (table[i].sectors >> 16) & 0xFF;
+                p[11] = (table[i].sectors >> 24) & 0xFF;
+                p[12] = 0; p[13] = 0; p[14] = 0; p[15] = 0;
+            }
+            return 0;
+        }
+
+        case SYS_PART_MKP: {
+            int drive = (int)a;
+            int index = (int)b;
+            int type  = (int)c;
+            uint32_t start_lba = d;
+            uint32_t sectors   = e;
+            partition_t ent;
+            ent.bootable  = 0;
+            ent.type      = type;
+            ent.start_lba = start_lba;
+            ent.sectors   = sectors;
+            return part_set_entry(drive, index, &ent);
         }
 
         default:

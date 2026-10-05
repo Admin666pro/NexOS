@@ -62,15 +62,12 @@ void kbd_init(void) {
 void kbd_irq(void) {
     uint8_t sc = inb(0x60);
 
-    /* 处理 Shift 按下/松开 */
     if (sc == 0x2A || sc == 0x36) { shift_pressed = 1; return; }
     if (sc == 0xAA || sc == 0xB6) { shift_pressed = 0; return; }
 
-    /* 处理 Ctrl 按下/松开 */
     if (sc == 0x1D) { ctrl_pressed = 1; return; }
     if (sc == 0x9D) { ctrl_pressed = 0; return; }
 
-    /* 只处理按下（bit 7 = 0），其他修饰键忽略 */
     if (sc & 0x80) return;
     if (sc >= 128) return;
 
@@ -78,7 +75,7 @@ void kbd_irq(void) {
     if (c == 0) return;
 
     uint32_t next = (kbd_head + 1) % KBD_BUF_SIZE;
-    if (next == kbd_tail) return;   /* 缓冲区满 */
+    if (next == kbd_tail) return;
     kbd_buf[kbd_head] = (uint8_t)c;
     kbd_head = next;
 }
@@ -92,4 +89,44 @@ int kbd_getchar(void) {
 
 void kbd_wait(void) {
     /* 用 hlt 循环代替阻塞，见 syscall.c 的 SYS_GETCHAR */
+}
+
+/* 非阻塞读键：从缓冲区取，没数据返回 0 */
+int kbd_poll(void) {
+    if (kbd_head != kbd_tail) {
+        char c = (char)kbd_buf[kbd_tail];
+        kbd_tail = (kbd_tail + 1) % KBD_BUF_SIZE;
+        return (int)(unsigned char)c;
+    }
+    return 0;
+}
+
+/* 阻塞读一个可见字符 */
+static int kbd_wait_char(void) {
+    for (;;) {
+        int c = kbd_poll();
+        if (c > 0 && c < 128) return c;
+        __asm__ volatile("hlt");
+    }
+}
+
+/* Y/N 确认，返回 1 = yes，0 = no */
+int kbd_confirm(const char *prompt) {
+    extern void vga_puts(const char *);
+    extern void vga_putc(char);
+
+    vga_puts(prompt);
+    vga_puts(" [y/N] ");
+
+    for (;;) {
+        int c = kbd_wait_char();
+        if (c == 'y' || c == 'Y') {
+            vga_puts("yes\n");
+            return 1;
+        }
+        if (c == 'n' || c == 'N' || c == '\n' || c == '\r') {
+            vga_puts("no\n");
+            return 0;
+        }
+    }
 }

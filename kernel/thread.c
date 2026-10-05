@@ -2,9 +2,12 @@
 #include "heap.h"
 #include "sched.h"
 
+
 thread_t *current_thread = 0;
 static int next_id = 1;
 extern void enter_usermode(uint32_t entry, uint32_t user_stack);
+
+/* 用 thread.h 里的 STACK_SIZE，不再自定义 */
 
 static void thread_user_stub(void) {
     __asm__ volatile("sti");
@@ -24,7 +27,7 @@ thread_t *thread_create_user(void (*entry)(void)) {
     thread_t *t = (thread_t *)kmalloc(sizeof(thread_t));
     if (!t) return 0;
 
-    t->kernel_stack = (uint32_t *)kmalloc(2048);
+    t->kernel_stack = (uint32_t *)kmalloc(STACK_SIZE);
     t->user_stack   = (uint32_t *)kmalloc(16 * 1024);
     if (!t->kernel_stack || !t->user_stack) return 0;
 
@@ -37,7 +40,7 @@ thread_t *thread_create_user(void (*entry)(void)) {
     t->msg_tail   = 0;
     t->next       = 0;
 
-    uint32_t *sp = t->kernel_stack + (2048 / sizeof(uint32_t));
+    uint32_t *sp = t->kernel_stack + (STACK_SIZE / sizeof(uint32_t));
     sp = (uint32_t *)((uint32_t)sp & ~15u);
 
     *--sp = (uint32_t)thread_user_stub;
@@ -55,10 +58,9 @@ thread_t *thread_create_elf(uint32_t entry, uint32_t stack_top) {
     thread_t *t = (thread_t *)kmalloc(sizeof(thread_t));
     if (!t) return 0;
 
-    t->kernel_stack = (uint32_t *)kmalloc(4096);
+    t->kernel_stack = (uint32_t *)kmalloc(STACK_SIZE);
     if (!t->kernel_stack) return 0;
 
-    /* user_stack 存栈底，thread_user_stub 会加 16KB 得到栈顶 */
     t->user_stack = (uint32_t *)(stack_top - 16 * 1024);
     t->stack_base = t->kernel_stack;
     t->entry      = (void (*)(void))entry;
@@ -69,7 +71,7 @@ thread_t *thread_create_elf(uint32_t entry, uint32_t stack_top) {
     t->msg_tail   = 0;
     t->next       = 0;
 
-    uint32_t *sp = t->kernel_stack + (4096 / sizeof(uint32_t));
+    uint32_t *sp = t->kernel_stack + (STACK_SIZE / sizeof(uint32_t));
     sp = (uint32_t *)((uint32_t)sp & ~15u);
 
     *--sp = (uint32_t)thread_user_stub;

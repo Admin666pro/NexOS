@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#define STACK_SIZE 2048
+#define STACK_SIZE (32 * 1024)
 
 typedef enum { THREAD_READY, THREAD_BLOCKED, THREAD_DEAD } thread_state_t;
 

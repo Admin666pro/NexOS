@@ -6,32 +6,68 @@ USER_CFLAGS  = -m32 -std=gnu99 -ffreestanding -O2 -Wall -Wextra \
                -fno-pie -fno-stack-protector -fno-builtin
 USER_LDFLAGS = -m32 -T user/user.ld -ffreestanding -O2 -nostdlib -no-pie
 
-OBJS = build/boot.o build/kmain.o \
+IMAGE_DIR = images
+
+OBJS = build/serial.o \
+       build/entry.o build/kmain.o \
        build/gdt.o build/gdt_flush.o \
        build/idt.o build/idt_flush.o \
        build/isr.o build/isr_stub.o \
        build/pmm.o build/paging.o build/paging_flush.o \
        build/heap.o build/vfs.o build/ramfs.o \
+       build/ata.o build/nxfs.o build/block_cache.o build/part.o \
        build/thread.o build/sched.o build/switch.o \
        build/timer.o build/ipc.o build/kbd.o \
        build/syscall.o build/usermode.o \
        build/elf_loader.o build/init_elf.o
 
-all: build/NexOS-NEXT.iso
+# ============================================================
+# 默认目标：生成 ISO + 磁盘镜像
+# ============================================================
+all: build/NexOS-NEXT.iso $(IMAGE_DIR)/disk.img
 
+# ============================================================
+# 运行
+# ============================================================
+run: $(IMAGE_DIR)/disk.img $(IMAGE_DIR)/disk2.img
+	@pkill -f '^qemu-system-i386' 2>/dev/null || true
+	@sleep 1
+	qemu-system-i386 \
+	    -drive file=$(IMAGE_DIR)/disk.img,format=raw,if=ide,index=0 \
+	    -drive file=$(IMAGE_DIR)/disk2.img,format=raw,if=ide,index=1 \
+	    -m 64M -no-reboot -no-shutdown \
+	    -display none -serial stdio
+
+run-iso: build/NexOS-NEXT.iso $(IMAGE_DIR)/disk.img $(IMAGE_DIR)/disk2.img
+	qemu-system-i386 -cdrom build/NexOS-NEXT.iso -boot d \
+	    -drive file=$(IMAGE_DIR)/disk.img,format=raw,if=ide,index=0 \
+	    -drive file=$(IMAGE_DIR)/disk2.img,format=raw,if=ide,index=1 \
+	    -m 64M
+
+# ============================================================
+# 目录
+# ============================================================
 build:
 	mkdir -p build
 
-build/%.o: boot/%.S | build
-	$(CC) $(CFLAGS) -c $< -o $@
+$(IMAGE_DIR):
+	mkdir -p $(IMAGE_DIR)
 
+# ============================================================
+# 编译规则
+# ============================================================
 build/%.o: kernel/%.c | build
 	$(CC) $(CFLAGS) -c $< -o $@
 
 build/%.o: kernel/%.S | build
 	$(CC) $(CFLAGS) -c $< -o $@
 
+build/entry.o: kernel/entry.S | build
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# ============================================================
 # 用户程序
+# ============================================================
 build/user_start.o: user/start.S | build
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 
@@ -41,21 +77,72 @@ build/user_main.o: user/main.c | build
 build/init.elf: build/user_start.o build/user_main.o user/user.ld
 	$(CC) $(USER_LDFLAGS) -o $@ build/user_start.o build/user_main.o
 
-# init_elf.o 依赖 build/init.elf
 build/init_elf.o: kernel/init_elf.S build/init.elf | build
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# ============================================================
+# 内核 ELF
+# ============================================================
 build/NexOS-NEXT.elf: $(OBJS) linker.ld
 	$(CC) $(LDFLAGS) -o $@ $(OBJS) -lgcc
 
+# ============================================================
+# 内核 raw binary（给自写引导器用）
+# ============================================================
+build/kernel.bin: build/NexOS-NEXT.elf
+	objcopy -O binary -R .multiboot $< $@
+
+# 加 512B 头
+build/kernel_payload.bin: build/kernel.bin tools/mkkernel
+	./tools/mkkernel build/kernel.bin $@
+
+tools/mkkernel: tools/mkkernel.c
+	$(CC) -O2 -o $@ $<
+
+# ============================================================
+# 引导器
+# ============================================================
+build/stage1.bin: boot/stage1.asm | build
+	nasm -f bin -o $@ $<
+
+build/stage2.bin: boot/stage2.asm | build
+	nasm -f bin -o $@ $<
+
+# ============================================================
+# ISO（GRUB 启动）
+# ============================================================
 build/NexOS-NEXT.iso: build/NexOS-NEXT.elf grub.cfg
 	mkdir -p build/iso/boot/grub
 	cp build/NexOS-NEXT.elf build/iso/boot/
 	cp grub.cfg build/iso/boot/grub/
 	grub-mkrescue -o $@ build/iso
 
-run: build/NexOS-NEXT.iso
-	qemu-system-i386 -cdrom build/NexOS-NEXT.iso -boot d
+# ============================================================
+# 磁盘镜像（自写引导器启动）
+# ============================================================
+$(IMAGE_DIR)/disk.img: build/stage1.bin build/stage2.bin build/kernel_payload.bin | $(IMAGE_DIR)
+	@if [ ! -f $@ ]; then \
+	    dd if=/dev/zero of=$@ bs=1M count=64 status=none; \
+	    echo "==> created $@ (64MB)"; \
+	fi
+	dd if=build/stage1.bin of=$@ bs=512 seek=0   conv=notrunc status=none
+	dd if=build/stage2.bin of=$@ bs=512 seek=1   conv=notrunc status=none
+	dd if=build/kernel_payload.bin of=$@ bs=512 seek=17 conv=notrunc status=none
+	@echo "==> updated boot area (NXFS preserved)"
 
+$(IMAGE_DIR)/disk2.img: | $(IMAGE_DIR)
+	@if [ ! -f $@ ]; then \
+	    dd if=/dev/zero of=$@ bs=1M count=16 status=none; \
+	    echo "==> created $@"; \
+	fi
+
+# ============================================================
+# 清理
+# ============================================================
 clean:
 	rm -rf build
+
+clean-all: clean
+	rm -rf $(IMAGE_DIR)
+
+.PHONY: all run run-iso clean clean-all

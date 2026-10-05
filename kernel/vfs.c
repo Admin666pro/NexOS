@@ -2,9 +2,13 @@
 #include "ramfs.h"
 #include "heap.h"
 
-extern void vga_puts(const char *);
-extern void vga_hex(uint32_t);
-extern void vga_putc(char);
+/* nxfs 的内部接口（供 vfs 调用） */
+extern uint32_t nxfs_read_chain(uint32_t start, uint32_t offset,
+                                uint8_t *buf, uint32_t len);
+extern uint32_t nxfs_write_chain(uint32_t start, uint32_t offset,
+                                 const uint8_t *buf, uint32_t len);
+extern uint32_t nxfs_alloc_block(void);
+extern void     nxfs_free_chain(uint32_t start);
 
 static fs_driver_t *backend = 0;
 static vfs_node_t  *root_node = 0;
@@ -20,6 +24,15 @@ static file_t fd_table[MAX_FDS];
 
 /* --- 路径工具 --- */
 
+static int name_eq(const char *a, const char *b) {
+    while (*a && *b) {
+        if (*a != *b) return 0;
+        a++; b++;
+    }
+    return *a == *b;
+}
+
+/* 合法文件名：字母、数字、. _ - */
 static int name_ok(const char *name) {
     if (!name || !*name) return 0;
     for (int i = 0; name[i]; i++) {
@@ -32,14 +45,6 @@ static int name_ok(const char *name) {
         return 0;
     }
     return 1;
-}
-
-static int name_eq(const char *a, const char *b) {
-    while (*a && *b) {
-        if (*a != *b) return 0;
-        a++; b++;
-    }
-    return *a == *b;
 }
 
 static int split_path(const char *path, char *name, const char **rest) {
@@ -64,9 +69,18 @@ static vfs_node_t *find_child(vfs_node_t *dir, const char *name) {
 /* --- 对外接口 --- */
 
 void vfs_init(void) {
+    /* 初始用 ramfs 作为 fallback，等待 nxfs 挂载 */
     ramfs_init();
     root_node = ramfs_root();
     backend   = ramfs_driver();
+    for (int i = 0; i < MAX_FDS; i++) fd_table[i].used = 0;
+}
+
+void vfs_use_nxfs(void) {
+    extern vfs_node_t  *nxfs_root(void);
+    extern fs_driver_t *nxfs_driver(void);
+    root_node = nxfs_root();
+    backend   = nxfs_driver();
     for (int i = 0; i < MAX_FDS; i++) fd_table[i].used = 0;
 }
 
@@ -119,12 +133,10 @@ vfs_node_t *vfs_create(const char *path, int type) {
     while (base_src[i] && i < MAX_NAME - 1) { base[i] = base_src[i]; i++; }
     base[i] = 0;
     if (i == 0) return 0;
-
     if (!name_ok(base)) return 0;
 
     vfs_node_t *parent = vfs_lookup(parent_path);
     if (!parent || parent->type != VFS_DIR) return 0;
-
     if (find_child(parent, base)) return 0;
 
     return backend->create(parent, base, type);
@@ -158,6 +170,19 @@ int vfs_write(vfs_node_t *node, uint32_t offset,
               const uint8_t *data, uint32_t len) {
     if (!node || node->type != VFS_FILE) return -1;
 
+    if (node->disk_block != NO_DISK_BLOCK) {
+        /* 磁盘后端 */
+        if (node->disk_block == 0xFFFFFFFFu || node->disk_block == 0) {
+            uint32_t b = nxfs_alloc_block();
+            if (b == NO_DISK_BLOCK) return -1;
+            node->disk_block = b;
+        }
+        uint32_t written = nxfs_write_chain(node->disk_block, offset, data, len);
+        if (offset + written > node->size) node->size = offset + written;
+        return (int)written;
+    }
+
+    /* 内存后端（ramfs） */
     uint32_t end = offset + len;
     if (end < offset) return -1;
 
@@ -192,10 +217,17 @@ int vfs_read(vfs_node_t *node, uint32_t offset,
     if (!node || node->type != VFS_FILE) return -1;
     if (offset >= node->size) return 0;
     if (offset + len > node->size) len = node->size - offset;
+
+    if (node->disk_block != NO_DISK_BLOCK) {
+        if (node->disk_block == 0xFFFFFFFFu) return 0;   /* 没数据 */
+        return (int)nxfs_read_chain(node->disk_block, offset, buf, len);
+    }
+
     for (uint32_t i = 0; i < len; i++)
         buf[i] = node->data[offset + i];
     return (int)len;
 }
+
 /* --- 文件描述符 --- */
 
 int vfs_open(const char *path, int flags) {
@@ -207,6 +239,14 @@ int vfs_open(const char *path, int flags) {
     } else if (flags & O_TRUNC) {
         if (n->type != VFS_FILE) return -1;
         n->size = 0;
+        if (n->disk_block != NO_DISK_BLOCK && n->disk_block != 0xFFFFFFFFu) {
+            nxfs_free_chain(n->disk_block);
+            n->disk_block = 0xFFFFFFFFu;
+        }
+        extern int nxfs_sync_dirent(vfs_node_t *);
+        extern int nxfs_commit(void);
+        nxfs_sync_dirent(n);
+        nxfs_commit();
     }
 
     for (int i = 0; i < MAX_FDS; i++) {
@@ -223,20 +263,30 @@ int vfs_open(const char *path, int flags) {
 
 int vfs_close(int fd) {
     if (fd < 0 || fd >= MAX_FDS || !fd_table[fd].used) return -1;
+    extern int bc_flush(void);
+    bc_flush();
     fd_table[fd].used = 0;
     return 0;
-}
-
-int vfs_fd_read(int fd, uint8_t *buf, uint32_t len) {
-    if (fd < 0 || fd >= MAX_FDS || !fd_table[fd].used) return -1;
-    int n = vfs_read(fd_table[fd].node, fd_table[fd].offset, buf, len);
-    if (n > 0) fd_table[fd].offset += n;
-    return n;
 }
 
 int vfs_fd_write(int fd, const uint8_t *buf, uint32_t len) {
     if (fd < 0 || fd >= MAX_FDS || !fd_table[fd].used) return -1;
     int n = vfs_write(fd_table[fd].node, fd_table[fd].offset, buf, len);
+    if (n > 0) fd_table[fd].offset += n;
+
+
+    extern int nxfs_sync_dirent(vfs_node_t *);
+    extern int nxfs_commit(void);
+    nxfs_sync_dirent(fd_table[fd].node);
+    nxfs_commit();
+
+    return n;
+}
+
+int vfs_fd_read(int fd, uint8_t *buf, uint32_t len) {
+    if (fd < 0 || fd >= MAX_FDS || !fd_table[fd].used) return -1;
+
+    int n = vfs_read(fd_table[fd].node, fd_table[fd].offset, buf, len);
     if (n > 0) fd_table[fd].offset += n;
     return n;
 }

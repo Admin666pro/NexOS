@@ -1,12 +1,16 @@
 ENTRY(_start)
 
 SECTIONS {
-    . = 1M;
+    . = 0x10000;
 
     _kernel_start = .;
 
+    .multiboot : {
+        KEEP(*(.multiboot))
+    }
+
     .text : {
-        *(.multiboot)
+        *(.text.entry)
         *(.text)
     }
 

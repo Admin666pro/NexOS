@@ -1,6 +1,8 @@
 ﻿#ifndef USER_SYSCALL_H
 #define USER_SYSCALL_H
 
+#include <stdint.h>   /* ★ 加这行 */
+
 static inline int sys_print(const char *s) {
     int r;
     __asm__ volatile("int $0x80"
@@ -105,6 +107,27 @@ static inline int sys_unlink(const char *path) {
         : "=a"(r)
         : "0"(14), "b"(path)
         : "ecx", "edx", "esi", "edi", "memory");
+    return r;
+}
+
+/* ★ 加这两个 */
+static inline int sys_part_list(int drive, void *buf) {
+    int r;
+    __asm__ volatile("int $0x80"
+        : "=a"(r)
+        : "0"(15), "b"(drive), "c"(buf)
+        : "edx", "esi", "edi", "memory");
+    return r;
+}
+
+static inline int sys_part_mkp(int drive, int index, int type,
+                               uint32_t start_lba, uint32_t sectors) {
+    int r;
+    __asm__ volatile("int $0x80"
+        : "=a"(r)
+        : "0"(16), "b"(drive), "c"(index),
+          "d"(type), "S"(start_lba), "D"(sectors)
+        : "memory");
     return r;
 }
 

@@ -1,4 +1,5 @@
 ﻿#include "syscall.h"
+#include <stdint.h>   /* ★ 加这行 */
 
 #define MAX_PATH 256
 #define MAX_NAME 64
@@ -6,6 +7,7 @@
 static char cmd[128];
 static int  cmd_len = 0;
 static char cat_buf[256];
+static char cwd[MAX_PATH] = "/";
 
 static void putc_(char c) { sys_putchar(c); }
 static void puts_(const char *s) { while (*s) putc_(*s++); }
@@ -24,7 +26,6 @@ static void skip_spaces(const char **p) {
     while (**p == ' ') (*p)++;
 }
 
-/* 从参数里取第一个词（到空格为止），写入 out */
 static int take_word(const char *src, char *out, int out_size) {
     int i = 0;
     while (src[i] && src[i] != ' ' && i < out_size - 1) {
@@ -35,10 +36,62 @@ static int take_word(const char *src, char *out, int out_size) {
     return i;
 }
 
+static void resolve_path(const char *in, char *out, int out_size) {
+    char tmp[MAX_PATH];
+
+    if (!in || !*in) in = ".";
+
+    if (in[0] == '/') {
+        tmp[0] = 0;
+    } else {
+        int i = 0;
+        while (cwd[i] && i < MAX_PATH - 1) { tmp[i] = cwd[i]; i++; }
+        tmp[i] = 0;
+    }
+
+    const char *p = in;
+    while (*p) {
+        while (*p == '/') p++;
+        if (!*p) break;
+
+        char seg[64];
+        int len = 0;
+        while (*p && *p != '/' && len < 63) seg[len++] = *p++;
+        seg[len] = 0;
+
+        if (str_eq(seg, ".")) continue;
+
+        if (str_eq(seg, "..")) {
+            int i = 0;
+            while (tmp[i]) i++;
+            while (i > 0 && tmp[i - 1] != '/') i--;
+            if (i > 0) i--;
+            if (i == 0) { tmp[0] = '/'; tmp[1] = 0; }
+            else tmp[i] = 0;
+            continue;
+        }
+
+        int i = 0;
+        while (tmp[i]) i++;
+        if (i == 0 || tmp[i - 1] != '/') tmp[i++] = '/';
+        int j = 0;
+        while (seg[j] && i < MAX_PATH - 1) tmp[i++] = seg[j++];
+        tmp[i] = 0;
+    }
+
+    if (tmp[0] == 0) { tmp[0] = '/'; tmp[1] = 0; }
+
+    int i = 0;
+    while (tmp[i] && i < out_size - 1) { out[i] = tmp[i]; i++; }
+    out[i] = 0;
+}
+
 static void cmd_help(void) {
     puts_("Commands:\n");
     puts_("  help            - show this\n");
     puts_("  clear           - clear screen\n");
+    puts_("  pwd             - show current directory\n");
+    puts_("  cd <dir>        - change directory\n");
     puts_("  tid             - show thread id\n");
     puts_("  echo XXX        - print XXX\n");
     puts_("  ls [path]       - list directory\n");
@@ -47,15 +100,46 @@ static void cmd_help(void) {
     puts_("  touch <file>    - create empty file\n");
     puts_("  write <f> <txt> - write text to file\n");
     puts_("  rm <file>       - delete file\n");
+    puts_("  rm -r <dir>     - recursively delete directory\n");
+    puts_("  rmdir <dir>     - delete empty directory\n");
     puts_("  exit            - exit shell\n");
+    puts_("  part            - list partition table\n");
+    puts_("  mkpart N T S C  - create partition N: type T, start LBA S, sectors C\n");
+}
+
+static void cmd_pwd(void) {
+    puts_(cwd);
+    putc_('\n');
+}
+
+static void cmd_cd(const char *args) {
+    char word[MAX_PATH];
+    if (!args || !*args) {
+        cwd[0] = '/'; cwd[1] = 0;
+        return;
+    }
+    if (take_word(args, word, MAX_PATH) == 0) return;
+
+    char path[MAX_PATH];
+    resolve_path(word, path, MAX_PATH);
+
+    int fd = sys_open(path, 0);
+    if (fd < 0) { puts_("cd: no such directory\n"); return; }
+    sys_close(fd);
+
+    int i = 0;
+    while (path[i] && i < MAX_PATH - 1) { cwd[i] = path[i]; i++; }
+    cwd[i] = 0;
 }
 
 static void cmd_ls(const char *args) {
     char path[MAX_PATH];
     if (!args || !*args) {
-        path[0] = '/'; path[1] = 0;
+        resolve_path("", path, MAX_PATH);
     } else {
-        take_word(args, path, MAX_PATH);
+        char word[MAX_PATH];
+        if (take_word(args, word, MAX_PATH) == 0) resolve_path("", path, MAX_PATH);
+        else resolve_path(word, path, MAX_PATH);
     }
 
     int fd = sys_open(path, 0);
@@ -74,11 +158,13 @@ static void cmd_ls(const char *args) {
 
 static void cmd_cat(const char *args) {
     if (!args || !*args) { puts_("cat: missing arg\n"); return; }
-    char path[MAX_PATH];
-    if (take_word(args, path, MAX_PATH) == 0) {
+    char word[MAX_PATH];
+    if (take_word(args, word, MAX_PATH) == 0) {
         puts_("cat: missing arg\n");
         return;
     }
+    char path[MAX_PATH];
+    resolve_path(word, path, MAX_PATH);
 
     int fd = sys_open(path, 0);
     if (fd < 0) { puts_("cat: cannot open\n"); return; }
@@ -93,36 +179,42 @@ static void cmd_cat(const char *args) {
 
 static void cmd_mkdir(const char *args) {
     if (!args || !*args) { puts_("mkdir: missing arg\n"); return; }
-    char path[MAX_PATH];
-    if (take_word(args, path, MAX_PATH) == 0) {
+    char word[MAX_PATH];
+    if (take_word(args, word, MAX_PATH) == 0) {
         puts_("mkdir: missing arg\n");
         return;
     }
+    char path[MAX_PATH];
+    resolve_path(word, path, MAX_PATH);
     if (sys_mkdir(path) < 0) puts_("mkdir: failed\n");
 }
 
 static void cmd_touch(const char *args) {
     if (!args || !*args) { puts_("touch: missing arg\n"); return; }
-    char path[MAX_PATH];
-    if (take_word(args, path, MAX_PATH) == 0) {
+    char word[MAX_PATH];
+    if (take_word(args, word, MAX_PATH) == 0) {
         puts_("touch: missing arg\n");
         return;
     }
+    char path[MAX_PATH];
+    resolve_path(word, path, MAX_PATH);
     int fd = sys_open(path, 0x0100);
     if (fd < 0) puts_("touch: failed\n");
     else sys_close(fd);
 }
 
 static void cmd_write(const char *args) {
-    char path[MAX_PATH];
-    int used = take_word(args, path, MAX_PATH);
+    char word[MAX_PATH];
+    int used = take_word(args, word, MAX_PATH);
     if (used == 0) { puts_("write: missing file\n"); return; }
 
-    /* 跳过文件名后的空格 */
     while (*args && *args != ' ') args++;
     skip_spaces(&args);
 
-    int fd = sys_open(path, 0x0100 | 0x0200);   /* O_CREAT | O_TRUNC */
+    char path[MAX_PATH];
+    resolve_path(word, path, MAX_PATH);
+
+    int fd = sys_open(path, 0x0100 | 0x0200);
     if (fd < 0) { puts_("write: cannot open\n"); return; }
 
     int len = 0;
@@ -134,14 +226,206 @@ static void cmd_write(const char *args) {
     sys_close(fd);
 }
 
+/* 递归删除：先删子项，再删自己 */
+static int do_rm_recursive(const char *path) {
+    int fd = sys_open(path, 0);
+    if (fd < 0) {
+        /* 不是目录，直接 unlink */
+        return sys_unlink(path);
+    }
+    sys_close(fd);
+
+    for (int i = 0; ; ) {
+        fd = sys_open(path, 0);
+        if (fd < 0) break;
+
+        char name[MAX_NAME];
+        int  type = 0;
+        if (sys_readdir(fd, i, name, &type) < 0) {
+            sys_close(fd);
+            break;   /* 没有更多项 */
+        }
+        sys_close(fd);
+
+        /* 拼接子路径 */
+        char child[MAX_PATH];
+        int j = 0;
+        while (path[j] && j < MAX_PATH - 1) { child[j] = path[j]; j++; }
+        if (j > 0 && child[j - 1] != '/') child[j++] = '/';
+        int k = 0;
+        while (name[k] && j < MAX_PATH - 1) child[j++] = name[k++];
+        child[j] = 0;
+
+        if (do_rm_recursive(child) < 0) {
+            /* 删不掉这个子项，跳过它继续下一个 */
+            i++;
+        }
+        /* 删成功的话，i 不变——下一项的索引就是 i */
+    }
+
+    /* 目录空了，删掉自己 */
+    return sys_unlink(path);
+}
+
+static void cmd_rmdir(const char *args) {
+    if (!args || !*args) { puts_("rmdir: missing arg\n"); return; }
+    char word[MAX_PATH];
+    if (take_word(args, word, MAX_PATH) == 0) {
+        puts_("rmdir: missing arg\n");
+        return;
+    }
+    char path[MAX_PATH];
+    resolve_path(word, path, MAX_PATH);
+    if (sys_unlink(path) < 0) puts_("rmdir: failed (not empty?)\n");
+}
+
 static void cmd_rm(const char *args) {
     if (!args || !*args) { puts_("rm: missing arg\n"); return; }
-    char path[MAX_PATH];
-    if (take_word(args, path, MAX_PATH) == 0) {
+
+    const char *p = args;
+    int recursive = 0;
+
+    /* 检查 -r 或 -rf 标志 */
+    if (p[0] == '-' && p[1] == 'r') {
+        recursive = 1;
+        p += 2;
+        /* 也接受 -rf */
+        if (*p == 'f') p++;
+        while (*p == ' ') p++;
+    }
+
+    char word[MAX_PATH];
+    if (take_word(p, word, MAX_PATH) == 0) {
         puts_("rm: missing arg\n");
         return;
     }
-    if (sys_unlink(path) < 0) puts_("rm: failed\n");
+
+    char path[MAX_PATH];
+    resolve_path(word, path, MAX_PATH);
+
+    if (recursive) {
+        if (do_rm_recursive(path) < 0) puts_("rm: failed\n");
+    } else {
+        if (sys_unlink(path) < 0) puts_("rm: failed (dir not empty?)\n");
+    }
+}
+
+static void cmd_part(const char *args) {
+    int drive = 0;
+    if (args && *args) {
+        char w[8];
+        if (take_word(args, w, 8) > 0) drive = w[0] - '0';
+    }
+
+    unsigned char buf[64];
+    if (sys_part_list(drive, buf) < 0) {
+        puts_("part: read failed\n");
+        return;
+    }
+
+    puts_("Drive "); putc_('0' + drive); puts_(":\n");
+    puts_("  #  boot  type  start_lba    sectors\n");
+
+    int any = 0;
+    for (int i = 0; i < 4; i++) {
+        unsigned char *p = buf + i * 16;
+        int boot = p[0];
+        int type = p[1];
+        uint32_t start = (uint32_t)p[4] | ((uint32_t)p[5] << 8)
+                       | ((uint32_t)p[6] << 16) | ((uint32_t)p[7] << 24);
+        uint32_t sectors = (uint32_t)p[8] | ((uint32_t)p[9] << 8)
+                         | ((uint32_t)p[10] << 16) | ((uint32_t)p[11] << 24);
+
+        if (type == 0 && sectors == 0) continue;
+        any = 1;
+
+        putc_(' '); putc_('0' + i); putc_(' ');
+        puts_(boot ? "yes " : "no  ");
+        putc_('0'); putc_('x');
+        const char *h = "0123456789ABCDEF";
+        putc_(h[(type >> 4) & 0xF]); putc_(h[type & 0xF]);
+        puts_("    ");
+
+        char tb[16]; int ti = 0;
+        uint32_t v = start;
+        if (v == 0) tb[ti++] = '0';
+        while (v) { tb[ti++] = '0' + (v % 10); v /= 10; }
+        while (ti--) putc_(tb[ti]);
+
+        puts_("   ");
+        ti = 0;
+        v = sectors;
+        if (v == 0) tb[ti++] = '0';
+        while (v) { tb[ti++] = '0' + (v % 10); v /= 10; }
+        while (ti--) putc_(tb[ti]);
+        putc_('\n');
+    }
+    if (!any) puts_("  (empty)\n");
+}
+
+static uint32_t parse_u32(const char *s) {
+    uint32_t v = 0;
+    while (*s >= '0' && *s <= '9') {
+        v = v * 10 + (*s - '0');
+        s++;
+    }
+    return v;
+}
+
+static void cmd_mkpart(const char *args) {
+    if (!args || !*args) { puts_("mkpart: missing args\n"); return; }
+
+    char w[32];
+    int drive, index, type;
+    uint32_t start, sectors;
+    const char *p = args;
+
+    if (take_word(p, w, 32) == 0) { puts_("mkpart: drive?\n"); return; }
+    drive = w[0] - '0';
+    while (*p && *p != ' ') p++;
+    while (*p == ' ') p++;
+
+    if (take_word(p, w, 32) == 0) { puts_("mkpart: index?\n"); return; }
+    index = w[0] - '0';
+    while (*p && *p != ' ') p++;
+    while (*p == ' ') p++;
+
+    if (take_word(p, w, 32) == 0) { puts_("mkpart: type?\n"); return; }
+    if (w[0] == '0' && (w[1] == 'x' || w[1] == 'X')) {
+        type = 0;
+        const char *h = w + 2;
+        while (*h) {
+            type <<= 4;
+            if (*h >= '0' && *h <= '9') type |= (*h - '0');
+            else if (*h >= 'a' && *h <= 'f') type |= (*h - 'a' + 10);
+            else if (*h >= 'A' && *h <= 'F') type |= (*h - 'A' + 10);
+            h++;
+        }
+    } else {
+        type = (int)parse_u32(w);
+    }
+    while (*p && *p != ' ') p++;
+    while (*p == ' ') p++;
+
+    if (take_word(p, w, 32) == 0) { puts_("mkpart: start?\n"); return; }
+    start = parse_u32(w);
+    while (*p && *p != ' ') p++;
+    while (*p == ' ') p++;
+
+    if (take_word(p, w, 32) == 0) { puts_("mkpart: sectors?\n"); return; }
+    sectors = parse_u32(w);
+
+    puts_("mkpart: drive="); putc_('0' + drive);
+    puts_(" index="); putc_('0' + index);
+    puts_(" type=0x");
+    const char *h = "0123456789ABCDEF";
+    putc_(h[(type >> 4) & 0xF]); putc_(h[type & 0xF]);
+    puts_("\n");
+
+    if (sys_part_mkp(drive, index, type, start, sectors) < 0)
+        puts_("mkpart: failed\n");
+    else
+        puts_("mkpart: ok\n");
 }
 
 static void run_cmd(void) {
@@ -154,6 +438,9 @@ static void run_cmd(void) {
     if (cmd_len == 0) { }
     else if (str_eq(p, "help"))  cmd_help();
     else if (str_eq(p, "clear")) { for (int i = 0; i < 25; i++) putc_('\n'); }
+    else if (str_eq(p, "pwd"))   cmd_pwd();
+    else if (str_eq(p, "cd"))    cmd_cd(0);
+    else if (str_prefix(p, "cd "))    cmd_cd(p + 3);
     else if (str_eq(p, "tid")) {
         char b[4] = { '0' + (sys_getid() % 10), '\n', 0, 0 };
         puts_("tid = "); puts_(b);
@@ -166,17 +453,22 @@ static void run_cmd(void) {
     else if (str_prefix(p, "mkdir ")) cmd_mkdir(p + 6);
     else if (str_prefix(p, "touch ")) cmd_touch(p + 6);
     else if (str_prefix(p, "write ")) cmd_write(p + 6);
+    else if (str_prefix(p, "rmdir ")) cmd_rmdir(p + 6);
     else if (str_prefix(p, "rm "))    cmd_rm(p + 3);
+    else if (str_eq(p, "part"))      cmd_part(0);
+    else if (str_prefix(p, "part ")) cmd_part(p + 5);
+    else if (str_prefix(p, "mkpart ")) cmd_mkpart(p + 7);
     else { puts_("unknown: "); puts_(p); putc_('\n'); }
 
     cmd_len = 0;
 }
 
 int main(void) {
-    puts_("NexOS-NEXT Shell v0.3\n");
+    puts_("NexOS-NEXT Shell v0.5\n");
     puts_("Type 'help' for commands.\n\n");
 
     for (;;) {
+        puts_(cwd);
         puts_("> ");
         cmd_len = 0;
 

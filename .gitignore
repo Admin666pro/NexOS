@@ -1,4 +1,22 @@
+# 构建产物
 build/
+
+# 磁盘镜像（大文件，本地生成）
+images/
+
+# 生成的文件
 *.iso
 *.elf
+*.bin
+*.img
+
+# 调试日志
 qemu.log
+
+# 编辑器
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
