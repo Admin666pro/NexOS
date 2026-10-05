@@ -6,7 +6,7 @@ NexOS-NEXT 包含自举引导、内存管理、分页、多线程调度、进程
 - **架构**：i386（32 位保护模式）
 - **语言**：C（`-std=gnu99`）+ GNU/NASM 汇编
 - **许可证**：Apache License 2.0（见 [LICENSE](LICENSE)）
-**简体中文** | [English](README-en.md)
+- **简体中文** | [English](README-en.md)
 ---
 
 ## 目录
