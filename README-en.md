@@ -1,4 +1,4 @@
-**English** | [简体中文](README.md)
+
 
 # NexOS-NEXT
 
@@ -9,6 +9,7 @@ NexOS-NEXT includes a custom bootloader, memory management, paging, multithreadi
 - **Architecture**: i386 (32-bit protected mode)
 - **Languages**: C (`-std=gnu99`) + GNU/NASM assembly
 - **License**: Apache License 2.0 (see [LICENSE](LICENSE))
+- **English** | [简体中文](README.md)
 
 ---
 
